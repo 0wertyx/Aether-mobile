@@ -1,5 +1,21 @@
 plugins { id 'com.android.application' }
+def releaseKeys = ['AETHER_KEYSTORE_PATH', 'AETHER_KEYSTORE_PASSWORD', 'AETHER_KEY_ALIAS', 'AETHER_KEY_PASSWORD']
+def hasReleaseKeys = releaseKeys.every { System.getenv(it) }
+if (releaseKeys.any { System.getenv(it) } && !hasReleaseKeys) {
+    throw new GradleException('Incomplete release signing configuration')
+}
 android {
+    if (hasReleaseKeys) {
+        signingConfigs {
+            release {
+                storeFile file(System.getenv('AETHER_KEYSTORE_PATH'))
+                storePassword System.getenv('AETHER_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('AETHER_KEY_ALIAS')
+                keyPassword System.getenv('AETHER_KEY_PASSWORD')
+            }
+        }
+        buildTypes { release { signingConfig signingConfigs.release } }
+    }
     namespace 'io.aether.studio'
     compileSdk 35
     defaultConfig {
@@ -11,4 +27,7 @@ android {
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
-dependencies { implementation 'androidx.webkit:webkit:1.12.1' }
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'androidx.core:core:1.15.0'
+}

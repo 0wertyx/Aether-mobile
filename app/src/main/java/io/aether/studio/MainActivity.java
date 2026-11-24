@@ -22,6 +22,7 @@ public final class MainActivity extends Activity {
     private static final String HOME = "https://" + HOST + "/assets/web/index.html";
     private static final int PICK = 101, EXPORT = 102;
     private WebView web;
+    private ReleaseUpdater updater;
     private ValueCallback<Uri[]> fileCallback;
     private int exportId;
     private String exportText;
@@ -79,8 +80,10 @@ public final class MainActivity extends Activity {
         });
         web.addJavascriptInterface(new ExportBridge(),"AetherAndroid");
         web.loadUrl(HOME);
+        updater = new ReleaseUpdater(this);
     }
     private final class ExportBridge {
+        @JavascriptInterface public void checkForUpdates(){runOnUiThread(()->{if(updater!=null&&!destroyed)updater.check(true);});}
         @JavascriptInterface public void exportText(int id,String name,String text){
             runOnUiThread(()->{
                 if(destroyed)return;
@@ -104,7 +107,7 @@ public final class MainActivity extends Activity {
         }
     }
     @Override public void onBackPressed(){if(web!=null)web.evaluateJavascript("window.aetherBack ? window.aetherBack() : false",result->{if(!"true".equals(result))super.onBackPressed();});else super.onBackPressed();}
-    @Override protected void onPause(){if(web!=null)web.onPause();super.onPause();}
-    @Override protected void onResume(){super.onResume();if(web!=null)web.onResume();}
-    @Override protected void onDestroy(){destroyed=true;if(fileCallback!=null){fileCallback.onReceiveValue(null);fileCallback=null;}io.shutdown();if(web!=null){web.removeJavascriptInterface("AetherAndroid");web.stopLoading();((android.view.ViewGroup)web.getParent()).removeView(web);web.destroy();web=null;}super.onDestroy();}
+    @Override protected void onPause(){if(updater!=null)updater.pause();if(web!=null)web.onPause();super.onPause();}
+    @Override protected void onResume(){super.onResume();if(web!=null)web.onResume();if(updater!=null)updater.resume();}
+    @Override protected void onDestroy(){destroyed=true;if(updater!=null)updater.close();if(fileCallback!=null){fileCallback.onReceiveValue(null);fileCallback=null;}io.shutdown();if(web!=null){web.removeJavascriptInterface("AetherAndroid");web.stopLoading();((android.view.ViewGroup)web.getParent()).removeView(web);web.destroy();web=null;}super.onDestroy();}
 }
