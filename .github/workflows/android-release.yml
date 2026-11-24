@@ -1,0 +1,71 @@
+name: Publish signed Android update
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: write
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Ensure complete interface
+        run: |
+          test -s app/src/main/assets/web/index.html
+          test -s app/src/main/assets/web/dist/android-host.js
+          test -s app/src/main/assets/web/assets/font-catalog.json
+          node tests/host.mjs
+      - name: Prepare Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Build signed release
+        env:
+          KEYSTORE_BASE64: ${{ secrets.AETHER_KEYSTORE_BASE64 }}
+          AETHER_KEYSTORE_PASSWORD: ${{ secrets.AETHER_KEYSTORE_PASSWORD }}
+          AETHER_KEY_ALIAS: ${{ secrets.AETHER_KEY_ALIAS }}
+          AETHER_KEY_PASSWORD: ${{ secrets.AETHER_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_BASE64"
+          test -n "$AETHER_KEYSTORE_PASSWORD"
+          test -n "$AETHER_KEY_ALIAS"
+          test -n "$AETHER_KEY_PASSWORD"
+          umask 077
+          export AETHER_KEYSTORE_PATH="$RUNNER_TEMP/aether-release.jks"
+          trap 'rm -f "$AETHER_KEYSTORE_PATH"' EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$AETHER_KEYSTORE_PATH"
+          gradle --no-daemon :app:assembleRelease
+      - name: Verify and name APK
+        id: apk
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release.apk
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          "$tools/apksigner" verify --verbose "$apk"
+          metadata=$("$tools/aapt" dump badging "$apk" | sed -n "1p")
+          package=$(printf '%s' "$metadata" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+          code=$(printf '%s' "$metadata" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
+          version=$(printf '%s' "$metadata" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          test "$package" = io.aether.studio
+          [[ "$code" =~ ^[1-9][0-9]*$ ]]
+          test "$GITHUB_REF_NAME" = "v$version"
+          mkdir -p release
+          asset="release/AETHER-Mobile-$code.apk"
+          cp "$apk" "$asset"
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+      - name: Publish stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APK: ${{ steps.apk.outputs.asset }}
+        run: gh release create "$GITHUB_REF_NAME" "$APK" --verify-tag --generate-notes --latest
